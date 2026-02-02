@@ -10,3 +10,6 @@ scikit-learn
 scipy
 sentence-transformers
 tqdm
+matplotlib
+textblob
+wordcloud

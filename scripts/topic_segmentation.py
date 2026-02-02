@@ -16,11 +16,16 @@ except ImportError:
 class TopicSegmenter:
     def __init__(self):
         self.embedding_model = None
-        try:
-            nltk.data.find('tokenizers/punkt')
-        except LookupError:
-            nltk.download('punkt', quiet=True)
-            nltk.download('stopwords', quiet=True)
+        # Ensure essential NLTK resources are available
+        resources = {
+            'tokenizers/punkt': 'punkt',
+            'corpora/stopwords': 'stopwords'
+        }
+        for path, pkg in resources.items():
+            try:
+                nltk.data.find(path)
+            except LookupError:
+                nltk.download(pkg, quiet=True)
 
     def _load_model(self):
         if self.embedding_model is None:
@@ -192,4 +197,52 @@ class TopicSegmenter:
         return " ".join(sentences[:num_sentences])
 
 if __name__ == "__main__":
-    pass
+    INPUT_DIR = "data/final_transcripts"
+    OUTPUT_DIR = "data/topics"
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    segmenter = TopicSegmenter()
+
+    for file in os.listdir(INPUT_DIR):
+        if not file.endswith("_merged.json"):
+            continue
+
+        with open(os.path.join(INPUT_DIR, file), "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        segments = data["segments"]
+        # Convert segments to a single text for segmentation logic
+        full_text = " ".join([s["text"] for s in segments])
+        
+        # We use similarity segmentation as a default for the standalone script
+        raw_topics = segmenter.segment_with_similarity(full_text)
+        final_topics = segmenter.enforce_topic_count(raw_topics)
+
+        output = {
+            "episode": data.get("episode", file.replace("_merged.json", "")),
+            "num_topics": len(final_topics),
+            "topics": []
+        }
+
+        # Standalone script usually doesn't have accurate timestamps without complex mapping
+        # but we can try to estimate or just provide keywords/summaries
+        for idx, topic in enumerate(final_topics, 1):
+            topic_text = topic["text"]
+            output["topics"].append({
+                "topic_id": idx,
+                "summary": segmenter.summarize(topic_text),
+                "keywords": segmenter.extract_keywords(topic_text),
+                "text": topic_text
+            })
+
+        out_path = os.path.join(
+            OUTPUT_DIR,
+            file.replace("_merged.json", "_topics.json")
+        )
+
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(output, f, indent=2)
+
+        print(f"✅ Topic segmentation completed: {out_path}")
+
+    print("🎉 All episodes segmented successfully")
