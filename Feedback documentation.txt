@@ -1,0 +1,84 @@
+
+Documentation 1:
+Name of the Podcast: Audio Book
+Genre of the Podcast: Self-Development Speech 
+Duration of the Podcast: 12:06
+Full Transcription Quality: 10/10 
+No.of Topic segmentation: 7
+Each Topic segmentation Duration: 1:24|00:58|1:22|1:06|00:48|00:54|2:38
+Interactive Timestamp bar graph: working
+Summarizing: perfect
+keywords: Good
+sentimental Analysis: neutral 
+wordcloud: working
+overall: 10/10
+
+Documentation 2:
+Name of the Podcast: Perfect
+Genre of the Podcast: Music
+Duration of the Podcast: 04:23
+Full Transcription Quality: 10 /10 (accurate lyrics)
+No.of Topic segmentation: 01
+Each Topic segmentation Duration: 04:18
+Interactive Timestamp bar graph: working
+Summarizing: perfect
+keywords: working and good
+wordcloud: working: positive
+sentimental Analysis: 
+overall: 9/10
+
+Documentation 3:
+Name of the Podcast: benson murdercase
+Genre of the Podcast: thriller
+Duration of the Podcast: 19:36
+Full Transcription Quality: 10/10
+No.of Topic segmentation: 15
+Each Topic segmentation Duration: 1:15|01:12|1:29|1:03|00:50|00:53|1:05
+Interactive Timestamp bar graph: working
+Summarizing: perfect
+keywords: working
+wordcloud: working
+sentimental Analysis: neutral
+overall: 10/10
+
+Documentation 4:
+Name of the Podcast: Crowd Talking
+Genre of the Podcast: noise speech
+Duration of the Podcast: 1:00
+Full Transcription Quality: 10/10 (Working as it is)
+No.of Topic segmentation: 0
+Each Topic segmentation Duration: 0
+Interactive Timestamp bar graph: No topics found in the processed data.
+Summarizing: No topics found in the processed data.
+keywords: No keywords
+wordcloud: None
+sentimental Analysis: none
+overall: As the audio is noisy one of multiple people talking, the transcription did not worked.
+
+Documentation 5:
+Name of the Podcast: PoliticallyPearShaped Broadcast
+Genre of the Podcast: Political speech
+Duration of the Podcast: 10:08
+Full Transcription Quality: 10/10
+No.of Topic segmentation: 7
+Each Topic segmentation Duration: 1:03|00:35|1:08|1:41|1:24|1:07|1:57
+Interactive Timestamp bar graph: working
+Summarizing: perfect
+keywords: Good 
+wordcloud: working
+sentimental Analysis: neutral
+overall: 10/10
+
+Documentation 6:
+Name of the Podcast: GreatPowerfulBeyondMeasure
+Genre of the Podcast: Motivational
+Duration of the Podcast: 04:18
+Full Transcription Quality: 10/10
+No.of Topic segmentation: 02
+Each Topic segmentation Duration: 1:29|01:57
+Interactive Timestamp bar graph: working
+Summarizing: perfect
+keywords: Good
+wordcloud: working
+sentimental Analysis: neutral
+overall: 10/10

@@ -229,8 +229,57 @@ class TopicSegmenter:
         return "Insight Segment"
 
     def summarize(self, text, num_sentences=2):
+        """
+        Generates a concise summary.
+        - Handles unpunctuated text by chunking.
+        - Uses embeddings to select representative sentences if model is loaded.
+        - Fallback to first few sentences/chunks.
+        """
+        if not text:
+            return ""
+            
+        # 1. Split into sentences or chunks
         sentences = sent_tokenize(text)
-        return " ".join(sentences[:num_sentences])
+        
+        # If very few sentences for long text, likely missing punctuation (e.g., song lyrics)
+        if len(sentences) < 3 and len(text.split()) > 50:
+            # Split by words (approx 20 words per chunk)
+            words = text.split()
+            chunk_size = 20
+            sentences = [" ".join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
+            
+        if len(sentences) <= num_sentences:
+            return " ".join(sentences)
+            
+        # 2. Select best sentences
+        # If we have embeddings, rank by centrality
+        if self.embedding_model:
+            try:
+                embeddings = self.embedding_model.encode(sentences)
+                doc_embedding = np.mean(embeddings, axis=0).reshape(1, -1)
+                
+                # Calculate similarity of each sentence to the document center
+                sims = cosine_similarity(embeddings, doc_embedding).flatten()
+                
+                # Sort by similarity (descending) and pick top N
+                # We also want to preserve order, so we pick indices then sort indices
+                top_indices = np.argsort(sims)[::-1][:num_sentences]
+                top_indices = sorted(top_indices)
+                
+                selected = [sentences[i].strip() for i in top_indices]
+                summary = " ".join(selected)
+                if not summary.endswith("."):
+                    summary += "."
+                return summary.capitalize()
+            except Exception as e:
+                print(f"Embedding summary failed: {e}, falling back.")
+        
+        # Fallback: Just take the first N (Lead Bias is often good)
+        selected = sentences[:num_sentences]
+        summary = " ".join(selected)
+        if not summary.endswith("."):
+             summary += "."
+        return summary.capitalize()
 
 if __name__ == "__main__":
     INPUT_DIR = "data/final_transcripts"
