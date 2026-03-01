@@ -42,6 +42,10 @@ EchoAI exists to bridge the gap between raw audio and actionable knowledge. By a
 - **What it does**: Renders a visual timeline of the audio, color-coded by topic.
 - **Why**: Enables rapid navigation to specific parts of the audio file.
 
+### 6. Multi-language Translation
+- **What it does**: Dynamically translates transcripts, summaries, and keywords into 20+ languages.
+- **Why**: Makes content accessible to non-English speakers and supports India's linguistic diversity.
+
 ---
 
 ## System Capabilities
@@ -56,7 +60,7 @@ EchoAI exists to bridge the gap between raw audio and actionable knowledge. By a
 ### What the System CANNOT Do
 - Real-time streaming transcription (it is a batch processing tool).
 - Speaker Diarization (identifying *who* is speaking is not currently implemented).
-- Translation (currently focused on English transcription).
+- **Multi-language Translation**: Supports 20+ languages including major Indian (Hindi, Telugu, Tamil, etc.) and foreign languages using `deep-translator`.
 
 ### Intentional Limitations
 - **Model Size**: Defaults to Whisper "Tiny" and "MiniLM" for compatibility with standard CPUs.

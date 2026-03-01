@@ -9,10 +9,20 @@ from textblob import TextBlob
 from wordcloud import WordCloud
 import re
 
+
 # Add parent directory to path to import modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from topic_segmentation import TopicSegmenter
 from audio_preprocessor import AudioPreprocessor
+import nltk
+from nltk.sentiment import SentimentIntensityAnalyzer
+
+try:
+    nltk.data.find('sentiment/vader_lexicon.zip')
+except LookupError:
+    nltk.download('vader_lexicon', quiet=True)
+
+sia = SentimentIntensityAnalyzer()
 
 # -------------------- SETUP --------------------
 st.set_page_config(
@@ -274,7 +284,7 @@ def process_segments(transcript_data, algorithm="Similarity", is_song=False):
             content_clean = clean_text(content)
             keywords = segmenter.extract_keywords(content_clean)
             segment_summary = generate_segment_summary_song(content_clean)
-            sentiment_label, sentiment_score, sentiment_color = analyze_sentiment(content_clean)
+            sentiment_label, sentiment_intensity, sentiment_color = analyze_sentiment(content_clean)
             topic_title = segmenter.generate_title(content_clean, keywords)
             
             processed.append({
@@ -285,7 +295,7 @@ def process_segments(transcript_data, algorithm="Similarity", is_song=False):
                 "keywords": keywords,
                 "summary": segment_summary,
                 "sentiment_label": sentiment_label,
-                "sentiment_score": sentiment_score,
+                "sentiment_intensity": sentiment_intensity,
                 "sentiment_color": sentiment_color,
                 "start_time": start_time,
                 "end_time": end_time,
@@ -343,7 +353,7 @@ def process_segments(transcript_data, algorithm="Similarity", is_song=False):
         keywords = segmenter.extract_keywords(content)
         raw_summary = segmenter.summarize(content)
         polished = polish_summary(raw_summary)
-        sentiment_label, sentiment_score, sentiment_color = analyze_sentiment(content)
+        sentiment_label, sentiment_intensity, sentiment_color = analyze_sentiment(content)
         
         # Generate context-aware title
         topic_title = segmenter.generate_title(content, keywords)
@@ -356,7 +366,7 @@ def process_segments(transcript_data, algorithm="Similarity", is_song=False):
             "keywords": keywords,
             "summary": polished,
             "sentiment_label": sentiment_label,
-            "sentiment_score": sentiment_score,
+            "sentiment_intensity": sentiment_intensity,
             "sentiment_color": sentiment_color,
             "start_time": start_time or 0.0,
             "end_time": end_time or 0.0
@@ -375,6 +385,9 @@ def generate_timeline(segments, selected_id=None):
     # Use a colormap
     cmap = plt.get_cmap("tab20")
     
+    # 2. Store topic metadata for click detection
+    bar_metadata = []
+    
     for i, seg in enumerate(segments):
         start = seg["start_time"]
         width = seg["end_time"] - start
@@ -383,7 +396,16 @@ def generate_timeline(segments, selected_id=None):
         color = cmap(i % 20)
         alpha = 1.0 if (selected_id is None or seg["id"] == selected_id) else 0.3
         
+        # Plot the segment
         ax.barh(0, width, left=start, height=0.5, color=color, alpha=alpha, edgecolor='white')
+        
+        # Track metadata for this specific bar
+        bar_metadata.append({
+            "topic_id": seg["id"],
+            "start_time": start,
+            "end_time": seg["end_time"],
+            "bar_position": 0
+        })
         
         # Add label if space permits
         if width > total_duration * 0.05:
@@ -393,6 +415,34 @@ def generate_timeline(segments, selected_id=None):
     ax.set_ylim(-0.5, 0.5)
     ax.axis('off')
     plt.tight_layout()
+    
+    # 3. Click Detection & 4. Navigation Trigger Logic
+    def on_click(event):
+        if event.inaxes != ax:
+            return
+            
+        x_click, y_click = event.xdata, event.ydata
+        
+        for meta in bar_metadata:
+            # Bar height is 0.5 centered at 0 (from -0.25 to 0.25)
+            y_min = meta["bar_position"] - 0.25
+            y_max = meta["bar_position"] + 0.25
+            
+            # Check if click lies within bar boundaries
+            if y_min <= y_click <= y_max:
+                if meta["start_time"] <= x_click <= meta["end_time"]:
+                    import streamlit as st
+                    if 'segments' in st.session_state:
+                        for s in st.session_state.segments:
+                            if s["id"] == meta["topic_id"]:
+                                # Trigger navigation/focus by updating the selected label in session state
+                                st.session_state.selected_topic_label = s["label"]
+                                break
+                    break
+
+    # 1. Use matplotlib event system
+    fig.canvas.mpl_connect('button_press_event', on_click)
+    
     return fig
 
 def format_timestamp(seconds):
@@ -419,23 +469,48 @@ def clean_text(text):
     return cleaned
 
 def analyze_sentiment(text):
-    blob = TextBlob(text)
-    polarity = blob.sentiment.polarity  # -1.0 to 1.0
+    # Rule 4 & 5: Consider intensity, context, sarcarsm, and emotional wording (VADER tracks this)
+    scores = sia.polarity_scores(text)
+    compound = scores['compound']
     
-    # Scale -1.0..1.0 to 1..10
-    score = round((polarity + 1) * 4.5 + 1, 1)
-    
-    if score <= 3.0:
+    # Rule 1, 2, 3: Strict thresholds (-1 to -0.3 Negative, -0.3 to 0.3 Neutral, 0.3 to 1 Positive)
+    if compound <= -0.3:
         label = "NEGATIVE"
         color = "red"
-    elif score <= 7.0:
-        label = "NEUTRAL"
-        color = "orange"
-    else:
+    elif compound >= 0.3:
         label = "POSITIVE"
         color = "green"
-        
-    return label, score, color
+    else:
+        # Fallback to TextBlob subjectivity to enforce Rule 1 (DO NOT default to Neutral)
+        # If highly subjective or contains specific emotional vocabulary, push it
+        blob = TextBlob(text)
+        if blob.sentiment.subjectivity > 0.5:
+            if blob.sentiment.polarity >= 0:
+                label = "POSITIVE"
+                color = "green"
+                compound = max(0.31, compound)
+            else:
+                label = "NEGATIVE"
+                color = "red"
+                compound = min(-0.31, compound)
+        else:
+            label = "NEUTRAL"
+            color = "orange"
+            compound = 0.0 # Force pure zero for strict neutrality
+            
+    # Calculate Intensity Rating (1-10 scale)
+    # -1 => 1, 0 => 5, +1 => 10
+    intensity = round((compound + 1) * 4.5 + 1)
+    
+    # Ensure strict adherence to 1-4, 5, 6-10 bins
+    if label == "NEGATIVE":
+        intensity = max(1, min(4, intensity))
+    elif label == "POSITIVE":
+        intensity = max(6, min(10, intensity))
+    else:
+        intensity = 5
+            
+    return label, int(intensity), color
 
 def generate_wordcloud(keywords):
     if not keywords:
@@ -461,11 +536,92 @@ def polish_summary(summary):
     sentences = segmenter.summarize(cleaned, num_sentences=3)
     return sentences
 
+import hashlib
+
+@st.cache_data(show_spinner=False)
+def get_translator(target_lang_code):
+    from deep_translator import GoogleTranslator
+    return GoogleTranslator(source='auto', target=target_lang_code)
+
+def translate_text(text, target_lang_code):
+    """
+    Translates text or a list of strings to the target language.
+    Uses batching for lists to improve performance and st.cache_data for speed.
+    """
+    if not text or target_lang_code == 'en':
+        return text
+    
+    # Handle list of strings (e.g., keywords)
+    is_list = isinstance(text, (list, tuple))
+    if is_list:
+        if not text:
+            return text
+        # Join list with a unique separator for batch translation
+        joined_text = " ||| ".join([str(item) for item in text])
+        translated_joined = translate_single_text(joined_text, target_lang_code)
+        # Split back and clean
+        translated_list = [item.strip() for item in translated_joined.split("|||")]
+        # Ensure parity if split failed for some reason
+        if len(translated_list) != len(text):
+            return [translate_single_text(str(item), target_lang_code) for item in text]
+        return translated_list
+    
+    return translate_single_text(text, target_lang_code)
+
+@st.cache_data(show_spinner="Translating content...")
+def translate_single_text(text, target_lang_code):
+    if not text or not isinstance(text, str) or not text.strip():
+        return text
+        
+    try:
+        translator = get_translator(target_lang_code)
+        
+        # Split large text into chunks (Google Translate limit is ~5000 chars)
+        max_chunk = 4500
+        if len(text) <= max_chunk:
+            return translator.translate(text)
+        else:
+            chunks = []
+            for i in range(0, len(text), max_chunk):
+                chunk = text[i:i+max_chunk]
+                translated_chunk = translator.translate(chunk)
+                chunks.append(translated_chunk if translated_chunk else chunk)
+            return "".join(chunks)
+    except Exception as e:
+        # Silently fail and return original text as per requirement
+        return text
+
 # -------------------- UI LAYOUT --------------------
 st.title("🎙️ EchoAI - Automated Podcast Transcription & Insights")
 
 # Sidebar
 with st.sidebar:
+    st.header("🌍 Display Language")
+    LANG_MAP = {
+        "English": "en",
+        "Hindi": "hi", "Telugu": "te", "Tamil": "ta", "Kannada": "kn", "Malayalam": "ml",
+        "Bengali": "bn", "Marathi": "mr", "Gujarati": "gu", "Punjabi": "pa", "Urdu": "ur", "Odia": "or",
+        "Assamese": "as", "Sanskrit": "sa",
+        "Spanish": "es", "French": "fr", "German": "de", "Italian": "it", "Portuguese": "pt",
+        "Japanese": "ja", "Korean": "ko", "Chinese Simplified": "zh-CN", "Arabic": "ar", "Russian": "ru",
+        "Turkish": "tr", "Vietnamese": "vi"
+    }
+    target_lang_name = st.selectbox(
+        "Select Language",
+        list(LANG_MAP.keys()),
+        index=0,
+        help="Translates all generated content to the selected language."
+    )
+    target_lang_code = LANG_MAP[target_lang_name]
+    
+    if target_lang_code != 'en':
+        st.caption(f"✨ Currently translating to: **{target_lang_name}**")
+        if st.button("🧹 Clear Translation Cache"):
+            st.cache_data.clear()
+            st.rerun()
+    
+    st.divider()
+
     st.header("⚙️ Settings")
     algo_choice = st.selectbox(
         "Segmentation Algorithm",
@@ -478,6 +634,8 @@ with st.sidebar:
     st.info("System automatically preprocesses audio (Denoise & Normalize) before transcription.")
 
 # State Management
+if 'translation_cache' not in st.session_state:
+    st.session_state.translation_cache = {}
 if 'last_uploaded_file' not in st.session_state:
     st.session_state.last_uploaded_file = None
 if 'transcript' not in st.session_state:
@@ -541,7 +699,7 @@ if uploaded_audio is not None:
                 # Set song flag in session state
                 st.session_state.is_song_analysis = is_song
             
-            st.success("Pipeline Completed Successfully!")
+            st.success(translate_text("Pipeline Completed Successfully!", target_lang_code))
             
         except Exception as e:
             st.error(f"Error during processing: {e}")
@@ -556,48 +714,17 @@ if uploaded_audio is not None:
 if st.session_state.transcript:
     st.divider()
     
-    # Check if this is a song analysis
-    is_song_analysis = hasattr(st.session_state, 'is_song_analysis') and st.session_state.is_song_analysis
-    
-    if is_song_analysis:
-        st.subheader("🎵 Song Analysis")
-        
-        # Display the overall song summary
-        if hasattr(st.session_state, 'song_overall_summary') and st.session_state.song_overall_summary:
-            st.markdown("**Full Summary:**")
-            st.info(st.session_state.song_overall_summary)
-        
-        # Display topic segments
-        st.markdown("**Topic Segments:**")
-        
-        # Display each topic segment in a structured format
-        if st.session_state.segments:
-            for segment in st.session_state.segments:
-                with st.container():
-                    st.markdown(f"**Topic {segment['id']+1}: {segment['title']}**")
-                    start_fmt = format_timestamp(segment['start_time'])
-                    end_fmt = format_timestamp(segment['end_time'])
-                    st.markdown(f"*Time: {start_fmt} – {end_fmt}*", unsafe_allow_html=True)
-                    st.success(f"Summary: {segment['summary']}")
-                    
-                    # Display sentiment
-                    s_color = segment['sentiment_color']
-                    st.markdown(f"<span style='color:{s_color}; font-weight:bold;'>{segment['sentiment_label']} (Score: {segment['sentiment_score']}/10)</span>", unsafe_allow_html=True)
-                    
-                    # Display keywords
-                    if segment['keywords']:
-                        kw_html = ""
-                        for kw in segment['keywords']:
-                            kw_html += f"<span style='background-color: #f0f2f6; color: #31333f; padding: 4px 12px; border-radius: 16px; margin: 4px; display: inline-block; border: 1px solid #dfe1e5; font-weight: 500;'>{kw}</span>"
-                        st.markdown(
-                            f"<div style='background-color: #f8f9fb; border: 1px solid #e6e9ef; border-radius: 8px; padding: 16px; margin-bottom: 20px;'>{kw_html}</div>",
-                            unsafe_allow_html=True
-                        )
-                    
-                    st.markdown(f"**Transcript:**")
-                    st.text_area("", segment["text"], height=100, key=f"song_txt_{segment['id']}", label_visibility="collapsed")
-                    st.divider()
-    
+    # Display the overall song summary if it exists (for songs)
+    if hasattr(st.session_state, 'song_overall_summary') and st.session_state.is_song_analysis:
+        st.subheader("🎵 Song Summary")
+        st.info(translate_text(st.session_state.song_overall_summary, target_lang_code))
+
+
+    st.subheader("📝 Full Transcription")
+    translated_transcript = translate_text(st.session_state.transcript, target_lang_code)
+    with st.expander("📄 View Complete Transcript", expanded=False):
+        st.text_area("Transcript Text", translated_transcript, height=200, label_visibility="collapsed")
+
     st.subheader("2️⃣ Analysis Timeline")
     # Show interactive timeline
     selected_id = None
@@ -613,16 +740,10 @@ if st.session_state.transcript:
         st.pyplot(fig)
         plt.close(fig)
 
-    st.subheader("📝 Full Transcription")
-    with st.expander("📄 View Complete Transcript", expanded=False):
-        st.text_area("Raw Text", st.session_state.transcript, height=200)
-
 # 3. SEGMENTATION
 if st.session_state.segments:
     # Only show the detailed segmentation view if this is NOT a song analysis
-    is_song_analysis = hasattr(st.session_state, 'is_song_analysis') and st.session_state.is_song_analysis
-    
-    if not is_song_analysis:
+    if True: # Always show segmentation for both podcasts and songs
         st.divider()
         st.subheader("3️⃣ Topic Segmentation & Analysis")
         
@@ -631,7 +752,17 @@ if st.session_state.segments:
         with col_nav:
             st.markdown("**Topic List**")
             options = [s["label"] for s in st.session_state.segments]
-            selected_label = st.radio("Select a Topic:", options, label_visibility="collapsed", key="selected_topic_label")
+            
+            def format_topic_label(label):
+                if target_lang_code == 'en':
+                    return label
+                seg = next((s for s in st.session_state.segments if s["label"] == label), None)
+                if seg:
+                    trans_title = translate_text(seg["title"], target_lang_code)
+                    return f"Topic {seg['id']+1}: {trans_title}"
+                return label
+                
+            selected_label = st.radio("Select a Topic:", options, format_func=format_topic_label, label_visibility="collapsed", key="selected_topic_label")
         
         selected_segment = next(s for s in st.session_state.segments if s["label"] == selected_label)
         
@@ -642,25 +773,32 @@ if st.session_state.segments:
             duration_sec = selected_segment['end_time'] - selected_segment['start_time']
             duration_fmt = format_timestamp(duration_sec)
             
+            trans_title = translate_text(selected_segment['title'], target_lang_code)
+            
             h_col1, h_col2 = st.columns([3, 1])
             with h_col1:
-                st.markdown(f"#### Topic {selected_segment['id'] + 1}: {selected_segment['title']} ({start_fmt} – {end_fmt})")
+                st.markdown(f"#### Topic {selected_segment['id'] + 1}: {trans_title} ({start_fmt} – {end_fmt})")
                 st.markdown(f"**Duration: {duration_fmt}**")
             with h_col2:
-                st.markdown(f"<span style='color:{selected_segment['sentiment_color']}; font-weight:bold;'>{selected_segment['sentiment_label']} (Score: {selected_segment['sentiment_score']}/10)</span>", unsafe_allow_html=True)
+                s_color = selected_segment['sentiment_color']
+                trans_sentiment = translate_text(selected_segment['sentiment_label'], target_lang_code)
+                trans_sentiment_header = translate_text("Sentiment Analysis", target_lang_code)
+                st.markdown(f"**{trans_sentiment_header}:** <span style='color:{s_color}; font-weight:bold;'>{trans_sentiment} ({selected_segment['sentiment_intensity']})</span>", unsafe_allow_html=True)
                 
             st.divider()
             
             # 3. Summary
             st.markdown("**Summary**")
-            st.success(selected_segment['summary'])
+            trans_summary = translate_text(selected_segment['summary'], target_lang_code)
+            st.success(trans_summary)
                 
             # 4. Keywords (Highlighted Box)
             st.markdown("**Keywords**")
             if selected_segment['keywords']:
+                trans_keywords = translate_text(selected_segment['keywords'], target_lang_code)
                 # Create a boxed container for keywords using custom CSS-like markdown
                 kw_html = ""
-                for kw in selected_segment['keywords']:
+                for kw in trans_keywords:
                     kw_html += f"<span style='background-color: #f0f2f6; color: #31333f; padding: 4px 12px; border-radius: 16px; margin: 4px; display: inline-block; border: 1px solid #dfe1e5; font-weight: 500;'>{kw}</span>"
                 
                 st.markdown(
@@ -672,10 +810,12 @@ if st.session_state.segments:
 
             # Optional: Word Cloud (Still valuable for visualization)
             with st.expander("☁️ View Topic Word Cloud", expanded=False):
+                # Wordcloud remains based on original English words to maintain integrity
                 wc_img = generate_wordcloud(selected_segment['keywords'])
                 if wc_img is not None:
                     st.image(wc_img, use_container_width=True)
 
             # 5. Transcript
             st.markdown("**Transcript**")
-            st.text_area("Segment Text", selected_segment["text"], height=250, key=f"txt_{selected_segment['id']}", label_visibility="collapsed")
+            trans_text = translate_text(selected_segment["text"], target_lang_code)
+            st.text_area("Segment Text", trans_text, height=250, key=f"txt_{selected_segment['id']}", label_visibility="collapsed")
