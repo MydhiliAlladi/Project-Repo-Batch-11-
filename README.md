@@ -206,14 +206,6 @@ Project-Repo-Batch-11-/
 
 ---
 
-## Author / Maintainer
-
-**Name**: springboardmentor330h
-**Role**: Lead Developer
-**Tech Focus**: NLP, Audio Processing, Streamlit Development
-
----
-
 ## Acknowledgements
 
 - **OpenAI**: For the Whisper model.
